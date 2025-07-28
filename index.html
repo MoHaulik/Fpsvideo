@@ -53,16 +53,13 @@
     import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
     import { GLTFLoader } from 'https://unpkg.com/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
 
-    // Variables for XR
     let camera, scene, renderer;
-    let controllers = [];
     let controller;
     let raycaster;
     let portalVideoTexture = null;
     let portalVideo = null;
     let gltfLoader = null;
-    let batModels = {};
-    let xrSession = null;
+    let batModel = null;
     
     // Game state
     let score = 0;
@@ -84,7 +81,6 @@
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
-      renderer.setClearColor(0x000000, 0);
       document.body.appendChild(renderer.domElement);
 
       // Lighting
@@ -98,13 +94,19 @@
       // Raycaster for shooting
       raycaster = new THREE.Raycaster();
 
-      // Setup GLTF loader for bat models
+      // Initialize GLTF loader
       gltfLoader = new GLTFLoader();
 
       // Setup video texture using the exact pattern from your working code
       setupVideoTexture();
 
-      document.getElementById('startButton').addEventListener('click', startARSession);
+      document.getElementById('startButton').addEventListener('click', () => {
+        navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['local-floor'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: document.body }
+        }).then(onSessionStarted);
+      });
     }
 
     function setupVideoTexture() {
@@ -131,53 +133,13 @@
       portalVideo.load();
     }
 
-    async function startARSession() {
-      if (!navigator.xr) {
-        console.log('WebXR not supported');
-        return;
-      }
-      
-      navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-        if (supported) {
-          const sessionInit = { 
-            requiredFeatures: ['local-floor'],
-            optionalFeatures: ['dom-overlay'],
-            domOverlay: { root: document.body }
-          };
-          
-          navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
-        } else {
-          console.log('AR not supported on this device');
-        }
-      });
-    }
-
-    async function onSessionStarted(session) {
-      xrSession = session;
+    function onSessionStarted(session) {
       document.getElementById('startButton').style.display = 'none';
       document.getElementById('info').style.display = 'block';
       
-      renderer.xr.setReferenceSpaceType('local');
       renderer.xr.setSession(session);
 
       // Setup controller
-      setupControllers(session);
-
-      // Start video playback after AR session starts (like in your working code)
-      if (portalVideo) {
-        portalVideo.play().then(() => {
-          console.log('Portal video started playing');
-        }).catch(err => {
-          console.error('Error playing portal video:', err);
-        });
-      }
-
-      renderer.setAnimationLoop(render);
-      session.addEventListener('end', onSessionEnd);
-    }
-
-    function setupControllers(session) {
-      controllers = [];
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', onSelect);
       scene.add(controller);
@@ -193,24 +155,17 @@
       const gun = new THREE.Mesh(geometry, material);
       gun.position.z = -0.05;
       controller.add(gun);
-      
-      controllers.push(controller);
-    }
 
-    function onSessionEnd() {
-      document.getElementById('startButton').style.display = 'block';
-      document.getElementById('info').style.display = 'none';
-      
-      renderer.setAnimationLoop(null);
-      xrSession = null;
-      
-      // Reset game state
-      score = 0;
-      health = 100;
-      portals = [];
-      enemies = [];
-      bullets = [];
-      updateUI();
+      // Start video playback after AR session starts (like in your working code)
+      if (portalVideo) {
+        portalVideo.play().then(() => {
+          console.log('Portal video started playing');
+        }).catch(err => {
+          console.error('Error playing portal video:', err);
+        });
+      }
+
+      renderer.setAnimationLoop(render);
     }
 
     function createPortal() {
@@ -274,8 +229,8 @@
     }
 
     async function loadBatModel() {
-      if (batModels['bat']) {
-        return batModels['bat'].clone();
+      if (batModel) {
+        return batModel.clone();
       }
       
       try {
@@ -283,7 +238,7 @@
           gltfLoader.load(
             'bat.glb',
             (gltf) => {
-              batModels['bat'] = gltf.scene;
+              batModel = gltf.scene;
               gltf.scene.traverse((child) => {
                 if (child.isMesh) {
                   child.castShadow = true;
@@ -296,24 +251,41 @@
             null,
             (error) => {
               console.error('Failed to load bat.glb:', error);
-              // Simple fallback enemy
-              const fallback = new THREE.Group();
+              // Fallback to simple geometry
+              const enemy = new THREE.Group();
+              
               const bodyGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.1);
               const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
               const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-              fallback.add(body);
-              resolve(fallback);
+              enemy.add(body);
+
+              const headGeometry = new THREE.SphereGeometry(0.1);
+              const headMaterial = new THREE.MeshPhongMaterial({ color: 0xffaa00 });
+              const head = new THREE.Mesh(headGeometry, headMaterial);
+              head.position.y = 0.3;
+              enemy.add(head);
+              
+              resolve(enemy);
             }
           );
         });
       } catch (error) {
-        // Simple fallback enemy
-        const fallback = new THREE.Group();
+        console.error('Error in loadBatModel:', error);
+        // Fallback enemy
+        const enemy = new THREE.Group();
+        
         const bodyGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.1);
         const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
         const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        fallback.add(body);
-        return fallback;
+        enemy.add(body);
+
+        const headGeometry = new THREE.SphereGeometry(0.1);
+        const headMaterial = new THREE.MeshPhongMaterial({ color: 0xffaa00 });
+        const head = new THREE.Mesh(headGeometry, headMaterial);
+        head.position.y = 0.3;
+        enemy.add(head);
+        
+        return enemy;
       }
     }
 
@@ -321,25 +293,21 @@
       const numEnemies = 2 + Math.floor(Math.random() * 3);
       
       for (let i = 0; i < numEnemies; i++) {
-        try {
-          const enemy = await loadBatModel();
-          
-          // Position enemy near portal
-          enemy.position.copy(portal.position);
-          enemy.position.x += (Math.random() - 0.5) * 0.5;
-          enemy.position.y += (Math.random() - 0.5) * 0.3;
-          
-          enemy.userData = {
-            health: 2,
-            speed: 0.5,
-            lastShot: 0
-          };
+        const enemy = await loadBatModel();
+        
+        // Position enemy near portal
+        enemy.position.copy(portal.position);
+        enemy.position.x += (Math.random() - 0.5) * 0.5;
+        enemy.position.y += (Math.random() - 0.5) * 0.3;
+        
+        enemy.userData = {
+          health: 2,
+          speed: 0.5,
+          lastShot: 0
+        };
 
-          scene.add(enemy);
-          enemies.push(enemy);
-        } catch (error) {
-          console.error('Failed to spawn enemy:', error);
-        }
+        scene.add(enemy);
+        enemies.push(enemy);
       }
     }
 
