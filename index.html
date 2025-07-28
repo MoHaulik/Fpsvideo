@@ -100,13 +100,7 @@
       // Setup video texture using the exact pattern from your working code
       setupVideoTexture();
 
-      document.getElementById('startButton').addEventListener('click', () => {
-        navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['local-floor'],
-          optionalFeatures: ['dom-overlay'],
-          domOverlay: { root: document.body }
-        }).then(onSessionStarted);
-      });
+      document.getElementById('startButton').addEventListener('click', startARSession);
     }
 
     function setupVideoTexture() {
@@ -133,7 +127,28 @@
       portalVideo.load();
     }
 
-    function onSessionStarted(session) {
+    async function startARSession() {
+      if (!navigator.xr) {
+        console.log('WebXR not supported');
+        return;
+      }
+      
+      navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+        if (supported) {
+          const sessionInit = { 
+            requiredFeatures: ['local-floor'],
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.body }
+          };
+          
+          navigator.xr.requestSession('immersive-ar', sessionInit).then(onSessionStarted);
+        } else {
+          console.log('AR not supported on this device');
+        }
+      });
+    }
+
+    async function onSessionStarted(session) {
       document.getElementById('startButton').style.display = 'none';
       document.getElementById('info').style.display = 'block';
       
@@ -220,9 +235,9 @@
       portals.push(portal);
 
       // Spawn enemies after 1 second
-      setTimeout(() => {
+      setTimeout(async () => {
         if (portals.includes(portal)) {
-          spawnEnemiesFromPortal(portal);
+          await spawnEnemiesFromPortal(portal);
           portal.userData.enemiesSpawned = true;
         }
       }, 1000);
