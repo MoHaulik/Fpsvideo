@@ -51,12 +51,15 @@
 
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
 
     let camera, scene, renderer;
     let controller;
     let raycaster;
     let portalVideoTexture = null;
     let portalVideo = null;
+    let gltfLoader = null;
+    let batModels = {};
     
     // Game state
     let score = 0;
@@ -90,6 +93,9 @@
 
       // Raycaster for shooting
       raycaster = new THREE.Raycaster();
+
+      // Setup GLTF loader for bat models
+      gltfLoader = new GLTFLoader();
 
       // Setup video texture using the exact pattern from your working code
       setupVideoTexture();
@@ -165,11 +171,11 @@
     function createPortal() {
       const portal = new THREE.Group();
       
-      // Portal ring
+      // Portal ring - now completely transparent
       const ringGeometry = new THREE.TorusGeometry(0.5, 0.05, 8, 20);
       const ringMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0x00ffff,
-        emissive: 0x00ffff
+        transparent: true,
+        opacity: 0
       });
       const ring = new THREE.Mesh(ringGeometry, ringMaterial);
       portal.add(ring);
@@ -222,38 +228,73 @@
       }, 1000);
     }
 
-    function spawnEnemiesFromPortal(portal) {
-      const numEnemies = 2 + Math.floor(Math.random() * 3);
+    async function loadBatModel() {
+      if (batModels['bat']) {
+        return batModels['bat'].clone();
+      }
       
-      for (let i = 0; i < numEnemies; i++) {
-        const enemy = new THREE.Group();
-        
-        // Enemy body
+      try {
+        return new Promise((resolve, reject) => {
+          gltfLoader.load(
+            'bat.glb',
+            (gltf) => {
+              batModels['bat'] = gltf.scene;
+              gltf.scene.traverse((child) => {
+                if (child.isMesh) {
+                  child.castShadow = true;
+                  child.receiveShadow = true;
+                }
+              });
+              gltf.scene.scale.setScalar(0.3);
+              resolve(gltf.scene.clone());
+            },
+            null,
+            (error) => {
+              console.error('Failed to load bat.glb:', error);
+              // Simple fallback enemy
+              const fallback = new THREE.Group();
+              const bodyGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.1);
+              const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+              const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+              fallback.add(body);
+              resolve(fallback);
+            }
+          );
+        });
+      } catch (error) {
+        // Simple fallback enemy
+        const fallback = new THREE.Group();
         const bodyGeometry = new THREE.BoxGeometry(0.2, 0.4, 0.1);
         const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
         const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        enemy.add(body);
+        fallback.add(body);
+        return fallback;
+      }
+    }
 
-        // Enemy head
-        const headGeometry = new THREE.SphereGeometry(0.1);
-        const headMaterial = new THREE.MeshPhongMaterial({ color: 0xffaa00 });
-        const head = new THREE.Mesh(headGeometry, headMaterial);
-        head.position.y = 0.3;
-        enemy.add(head);
+    async function spawnEnemiesFromPortal(portal) {
+      const numEnemies = 2 + Math.floor(Math.random() * 3);
+      
+      for (let i = 0; i < numEnemies; i++) {
+        try {
+          const enemy = await loadBatModel();
+          
+          // Position enemy near portal
+          enemy.position.copy(portal.position);
+          enemy.position.x += (Math.random() - 0.5) * 0.5;
+          enemy.position.y += (Math.random() - 0.5) * 0.3;
+          
+          enemy.userData = {
+            health: 2,
+            speed: 0.5,
+            lastShot: 0
+          };
 
-        // Position enemy near portal
-        enemy.position.copy(portal.position);
-        enemy.position.x += (Math.random() - 0.5) * 0.5;
-        enemy.position.y += (Math.random() - 0.5) * 0.3;
-        
-        enemy.userData = {
-          health: 2,
-          speed: 0.5,
-          lastShot: 0
-        };
-
-        scene.add(enemy);
-        enemies.push(enemy);
+          scene.add(enemy);
+          enemies.push(enemy);
+        } catch (error) {
+          console.error('Failed to spawn enemy:', error);
+        }
       }
     }
 
@@ -370,7 +411,7 @@
           scene.remove(portal);
           portals.splice(i, 1);
         } else {
-          // Animate portal ring
+          // Animate portal ring (even though it's invisible now)
           portal.children[0].rotation.z += delta * 2;
         }
       }
