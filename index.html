@@ -53,13 +53,16 @@
     import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
     import { GLTFLoader } from 'https://unpkg.com/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
 
+    // Variables for XR
     let camera, scene, renderer;
+    let controllers = [];
     let controller;
     let raycaster;
     let portalVideoTexture = null;
     let portalVideo = null;
     let gltfLoader = null;
     let batModels = {};
+    let xrSession = null;
     
     // Game state
     let score = 0;
@@ -81,6 +84,7 @@
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
+      renderer.setClearColor(0x000000, 0);
       document.body.appendChild(renderer.domElement);
 
       // Lighting
@@ -149,12 +153,31 @@
     }
 
     async function onSessionStarted(session) {
+      xrSession = session;
       document.getElementById('startButton').style.display = 'none';
       document.getElementById('info').style.display = 'block';
       
+      renderer.xr.setReferenceSpaceType('local');
       renderer.xr.setSession(session);
 
       // Setup controller
+      setupControllers(session);
+
+      // Start video playback after AR session starts (like in your working code)
+      if (portalVideo) {
+        portalVideo.play().then(() => {
+          console.log('Portal video started playing');
+        }).catch(err => {
+          console.error('Error playing portal video:', err);
+        });
+      }
+
+      renderer.setAnimationLoop(render);
+      session.addEventListener('end', onSessionEnd);
+    }
+
+    function setupControllers(session) {
+      controllers = [];
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', onSelect);
       scene.add(controller);
@@ -170,17 +193,24 @@
       const gun = new THREE.Mesh(geometry, material);
       gun.position.z = -0.05;
       controller.add(gun);
+      
+      controllers.push(controller);
+    }
 
-      // Start video playback after AR session starts (like in your working code)
-      if (portalVideo) {
-        portalVideo.play().then(() => {
-          console.log('Portal video started playing');
-        }).catch(err => {
-          console.error('Error playing portal video:', err);
-        });
-      }
-
-      renderer.setAnimationLoop(render);
+    function onSessionEnd() {
+      document.getElementById('startButton').style.display = 'block';
+      document.getElementById('info').style.display = 'none';
+      
+      renderer.setAnimationLoop(null);
+      xrSession = null;
+      
+      // Reset game state
+      score = 0;
+      health = 100;
+      portals = [];
+      enemies = [];
+      bullets = [];
+      updateUI();
     }
 
     function createPortal() {
